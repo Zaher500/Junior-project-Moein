@@ -71,3 +71,16 @@ class UserLoginSerializer(serializers.Serializer):
         # Add user to validated data
         data['user'] = user
         return data
+
+
+class DeleteAccountSerializer(serializers.Serializer):
+    password = serializers.CharField(write_only=True, required=True)
+    
+    def validate(self, data):
+        user = self.context['request'].user
+        password = data.get('password')
+        
+        # Verify password
+        if not user.check_password(password):
+            raise serializers.ValidationError("Incorrect password")
+        return data

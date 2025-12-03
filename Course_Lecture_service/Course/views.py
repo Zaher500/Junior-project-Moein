@@ -1,5 +1,5 @@
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt
 from .models import Course, Lecture
@@ -11,9 +11,10 @@ from django.conf import settings
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.decorators import api_view, parser_classes
 from .serializers import CourseSerializer, LectureCreateSerializer, LectureSerializer
+from rest_framework.permissions import AllowAny
 
 
-# CREATE - Add new course
+
 @api_view(['POST'])
 def create_course(request):
     """
@@ -70,7 +71,7 @@ def get_course(request, course_id):
     except Course.DoesNotExist:
         return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
 
-# UPDATE - Edit course
+
 @api_view(['PUT'])
 def update_course(request, course_id):
     """
@@ -94,7 +95,7 @@ def update_course(request, course_id):
     except Course.DoesNotExist:
         return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
 
-# DELETE - Remove course
+
 @api_view(['DELETE'])
 def delete_course(request, course_id):
     """
@@ -110,9 +111,8 @@ def delete_course(request, course_id):
         return Response({'message': 'Course deleted successfully'}, status=status.HTTP_200_OK)
     except Course.DoesNotExist:
         return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
+
 #///////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
 
 @api_view(['POST'])
 @csrf_exempt
@@ -203,8 +203,6 @@ def upload_lecture(request, course_id):
         )
 
 
-
-# UPDATE LECTURE NAME
 @api_view(['PUT'])
 def update_lecture_name(request, course_id, lecture_id):
     """
@@ -263,7 +261,6 @@ def update_lecture_name(request, course_id, lecture_id):
         
     except Exception as e:
         return Response({'error': f'Failed to update lecture name: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 
 @api_view(['DELETE'])
@@ -348,3 +345,19 @@ def delete_lecture(request, course_id, lecture_id):
             {'error': f'Failed to delete lecture: {str(e)}'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['DELETE'])
+def delete_student_courses(request, student_id):
+    """Simple endpoint to delete all courses for a student"""
+    try:
+        from .models import Course
+        Course.objects.filter(student_id=student_id).delete()
+        
+        return Response({
+            'message': f'Courses deleted for student {student_id}',
+            'deleted': True
+        })
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
