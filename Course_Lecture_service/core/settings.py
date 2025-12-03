@@ -16,6 +16,7 @@ DEBUG = True
 CSRF_TRUSTED_ORIGINS = [
     'https://*.ngrok.io',
     'https://*.ngrok-free.app',
+    'https://*.ngrok-free.dev',
     'http://localhost:8000',
     'http://localhost:8001',
 ]
@@ -24,7 +25,9 @@ CSRF_TRUSTED_ORIGINS = [
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    "asteroidal-rikki-craniologically.ngrok-free.dev"
+    ".ngrok-free.app",    # ← Wildcard for ngrok-free.app domains
+    ".ngrok.io",          # ← Wildcard for ngrok.io domains
+    ".ngrok-free.dev",    # ← Wildcard for ngrok-free.dev domains
 ]
 
 

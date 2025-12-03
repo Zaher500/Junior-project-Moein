@@ -37,7 +37,9 @@ CSRF_TRUSTED_ORIGINS = [
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
-    "asteroidal-rikki-craniologically.ngrok-free.dev"
+    ".ngrok-free.app",    # ← Wildcard for ngrok-free.app domains
+    ".ngrok.io",          # ← Wildcard for ngrok.io domains
+    ".ngrok-free.dev",    # ← Wildcard for ngrok-free.dev domains
 ]
 
 
