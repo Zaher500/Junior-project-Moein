@@ -1,14 +1,33 @@
-from rest_framework import status, exceptions  
+# ==============================================================================
+# STANDARD LIBRARY IMPORTS
+# ==============================================================================
+import requests
+
+# ==============================================================================
+# DJANGO & DRF IMPORTS
+# ==============================================================================
+from rest_framework import status, exceptions
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
+
+# ==============================================================================
+# LOCAL APPLICATION IMPORTS
+# ==============================================================================
 from .models import User, Student
-from .serializers import DeleteAccountSerializer, UserLoginSerializer, UserSignupSerializer, UserSerializer
+from .serializers import (
+    DeleteAccountSerializer,
+    UserLoginSerializer,
+    UserSignupSerializer,
+    UserSerializer
+)
 from .auth import create_jwt_for_user
 from .jwt_utils import get_user_from_token
-import requests
 
 
+# ==============================================================================
+# VIEW FUNCTIONS
+# ==============================================================================
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signup(request):
@@ -195,6 +214,7 @@ def check_student_exists(request, student_id):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def check_user_exists(request, user_id):
+
     """Check if user exists by user_id"""
     try:
         user = User.objects.get(user_id=user_id)
@@ -214,3 +234,4 @@ def check_user_exists(request, user_id):
         return Response({'exists': False}, status=404)
     except Student.DoesNotExist:
         return Response({'exists': False}, status=404)
+

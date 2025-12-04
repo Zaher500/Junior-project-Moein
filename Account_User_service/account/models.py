@@ -32,6 +32,7 @@ class User(models.Model):
 
 
 class Student(models.Model):
+
     student_id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -51,3 +52,4 @@ class Student(models.Model):
     
     class Meta:
         db_table = 'Student'
+

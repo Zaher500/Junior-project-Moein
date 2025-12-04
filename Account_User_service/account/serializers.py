@@ -74,6 +74,7 @@ class UserLoginSerializer(serializers.Serializer):
 
 
 class DeleteAccountSerializer(serializers.Serializer):
+
     password = serializers.CharField(write_only=True, required=True)
     
     def validate(self, data):
@@ -84,3 +85,4 @@ class DeleteAccountSerializer(serializers.Serializer):
         if not user.check_password(password):
             raise serializers.ValidationError("Incorrect password")
         return data
+
