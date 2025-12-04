@@ -12,4 +12,5 @@ urlpatterns = [
     path('courses/<uuid:course_id>/lectures/<uuid:lecture_id>/update-name/', views.update_lecture_name, name='update-lecture-name'),
     path('courses/<uuid:course_id>/lectures/<uuid:lecture_id>/delete/', views.delete_lecture, name='delete-lecture'),
     path('delete-student-courses/<uuid:student_id>/', views.delete_student_courses),
+    path('courses/<uuid:course_id>/lectures/', views.get_course_lectures, name='get-course-lectures'), #GET ALL LECTURES FOR SPECIFIC COURSE
 ]

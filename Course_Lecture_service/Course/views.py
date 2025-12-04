@@ -31,8 +31,6 @@ from .serializers import (
 from .jwt_utils import get_student_id_from_token
 
 
-
-
 # ==============================================================================
 # VIEW FUNCTIONS
 # ==============================================================================
@@ -93,6 +91,85 @@ def get_course(request, course_id):
         return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
 
 
+@api_view(['GET'])
+def get_course_lectures(request, course_id):
+    """
+    Get all lectures for a specific course WITH FILE URLS
+    URL: GET /api/courses/COURSE_ID/lectures/
+    """
+    student_id = get_student_id_from_token(request)
+    if not student_id:
+        return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+    
+    try:
+        course = Course.objects.get(course_id=course_id, student_id=student_id)
+    except Course.DoesNotExist:
+        return Response({'error': 'Course not found'}, status=404)
+    
+    lectures = Lecture.objects.filter(course_id=course_id, student_id=student_id)
+    
+    # Get all files in the folder
+    folder_path = os.path.join(settings.MEDIA_ROOT, str(student_id), str(course_id))
+
+    print("=" * 50)
+    print(f"DEBUG - Looking for files in: {folder_path}")
+    print(f"DEBUG - Folder exists: {os.path.exists(folder_path)}")
+    
+    if os.path.exists(folder_path):
+        print(f"DEBUG - Files in folder: {os.listdir(folder_path)}")
+    else:
+        print(f"DEBUG - Folder doesn't exist!")
+    
+    # Check parent directory
+    parent_path = os.path.join(settings.MEDIA_ROOT, str(student_id))
+    print(f"DEBUG - Parent folder ({parent_path}) exists: {os.path.exists(parent_path)}")
+    if os.path.exists(parent_path):
+        print(f"DEBUG - Contents of parent folder: {os.listdir(parent_path)}")
+    
+    print("=" * 50)
+
+    all_files = os.listdir(folder_path) if os.path.exists(folder_path) else []
+    
+    lectures_data = []
+    for lecture in lectures:
+        lecture_dict = LectureSerializer(lecture).data
+        
+        # =============================================
+        # UPDATED LOGIC: Use the stored file_name field
+        # =============================================
+        if lecture.file_name:  # Check if lecture has a stored filename
+            # Check if the file actually exists in the folder
+            if lecture.file_name in all_files:
+                filename = lecture.file_name
+                # Create the URL
+                file_url = f"{request.scheme}://{request.get_host()}/media/lectures/{student_id}/{course_id}/{filename}"
+                
+                lecture_dict['file_url'] = file_url
+                lecture_dict['filename'] = filename
+                lecture_dict['has_file'] = True
+            else:
+                # File was recorded but doesn't exist in folder
+                lecture_dict['file_url'] = None
+                lecture_dict['filename'] = None
+                lecture_dict['has_file'] = False
+        else:
+            # No file_name stored for this lecture
+            lecture_dict['file_url'] = None
+            lecture_dict['filename'] = None
+            lecture_dict['has_file'] = False
+        # =============================================
+        # END OF UPDATED LOGIC
+        # =============================================
+        
+        lectures_data.append(lecture_dict)
+    
+    return Response({
+        'course': CourseSerializer(course).data,
+        'lectures': lectures_data,
+        'count': lectures.count()
+    })
+
+
 @api_view(['PUT'])
 def update_course(request, course_id):
     """
@@ -120,7 +197,7 @@ def update_course(request, course_id):
 @api_view(['DELETE'])
 def delete_course(request, course_id):
     """
-    Delete a course (only if owned by student)
+    Delete a course (only if owned by student) AND ALL ITS FILES
     """
     student_id = get_student_id_from_token(request)
     if not student_id:
@@ -128,10 +205,45 @@ def delete_course(request, course_id):
     
     try:
         course = Course.objects.get(course_id=course_id, student_id=student_id)
+        
+        # 1. Delete all files and the folder
+        course_folder = os.path.join(
+            settings.MEDIA_ROOT,
+            str(student_id),
+            str(course_id)
+        )
+        
+        files_deleted = []
+        folder_deleted = False
+        
+        if os.path.exists(course_folder):
+            # Delete all files
+            for filename in os.listdir(course_folder):
+                file_path = os.path.join(course_folder, filename)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+                    files_deleted.append(filename)
+            
+            # Delete the folder
+            os.rmdir(course_folder)
+            folder_deleted = True
+        
+        # 2. Delete the course (cascades to lectures)
+        course_name = course.course_name
         course.delete()
-        return Response({'message': 'Course deleted successfully'}, status=status.HTTP_200_OK)
+        
+        return Response({
+            'message': 'Course and all lectures deleted',
+            'deleted_course': course_name,
+            'files_deleted': files_deleted,
+            'files_count': len(files_deleted),
+            'folder_deleted': folder_deleted
+        })
+        
     except Course.DoesNotExist:
-        return Response({'error': 'Course not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'error': 'Course not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
 
 #///////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -187,13 +299,18 @@ def upload_lecture(request, course_id):
         student_id_str = str(student_id)
         course_id_str = str(course_id)
         
-        upload_dir = os.path.join(settings.MEDIA_ROOT, 'lectures', student_id_str, course_id_str)
+        upload_dir = os.path.join(settings.MEDIA_ROOT, student_id_str, course_id_str)
         os.makedirs(upload_dir, exist_ok=True)
         
         # 6. Generate unique filename
         file_extension = os.path.splitext(uploaded_file.name)[1]
         unique_filename = f"{uuid.uuid4()}{file_extension}"
         file_path = os.path.join(upload_dir, unique_filename)
+        
+
+        print(f"DEBUG - MEDIA_ROOT: {settings.MEDIA_ROOT}")
+        print(f"DEBUG - upload_dir: {upload_dir}")
+        print(f"DEBUG - File saved to: {file_path}")
         
         # 7. Save file
         with open(file_path, 'wb+') as destination:
@@ -208,6 +325,7 @@ def upload_lecture(request, course_id):
             student_id=student_id,
             course_id=course,  # Pass the Course object directly
             lecture_name=lecture_name,
+            file_name=unique_filename,
         )
         
         # 10. Return response
@@ -318,47 +436,51 @@ def delete_lecture(request, course_id, lecture_id):
         )
     
     try:
-        # 4. Delete the physical file based on your upload structure
-        student_id_str = str(student_id)
-        course_id_str = str(course_id)
+        # 4. Delete the physical file using the stored file_name
+        file_deleted = False
+        folder_deleted = False
         
-        # Build the upload directory path (same as in upload_lecture)
-        upload_dir = os.path.join(settings.MEDIA_ROOT, 'lectures', student_id_str, course_id_str)
-        
-        # Look for the file in the directory
-        # Since your upload function uses UUID filenames, we need to find the actual file
-        if os.path.exists(upload_dir):
-            # Option 1: If you store the filename in the Lecture model
-            if hasattr(lecture, 'file_name') and lecture.file_name:
-                file_path = os.path.join(upload_dir, lecture.file_name)
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                    print(f"Deleted physical file: {file_path}")
+        if lecture.file_name:  # Check if we have filename stored
+            file_path = os.path.join(
+                settings.MEDIA_ROOT,
+                'lectures',
+                str(student_id),
+                str(course_id),
+                lecture.file_name
+            )
             
-            # Option 2: Search for files if you don't store the filename
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                file_deleted = True
+                print(f"✅ Deleted file: {file_path}")
+                
+                # Check if folder is now empty
+                folder_path = os.path.join(
+                    settings.MEDIA_ROOT,
+                    str(student_id),
+                    str(course_id)
+                )
+                
+                if os.path.exists(folder_path) and not os.listdir(folder_path):
+                    os.rmdir(folder_path)
+                    folder_deleted = True
+                    print(f"✅ Deleted empty folder: {folder_path}")
             else:
-                # Find all files in the directory and delete them
-                # This assumes each lecture has one file in the directory
-                for filename in os.listdir(upload_dir):
-                    file_path = os.path.join(upload_dir, filename)
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                        print(f"Deleted physical file: {file_path}")
-                        
-                # Optional: Remove the empty directory
-                if not os.listdir(upload_dir):  # If directory is empty
-                    os.rmdir(upload_dir)
-                    print(f"Removed empty directory: {upload_dir}")
+                print(f"⚠️ File not found: {file_path}")
+        else:
+            print(f"⚠️ Lecture has no file_name stored: {lecture.lecture_id}")
         
         # 5. Delete the lecture record from database
         lecture_name = lecture.lecture_name
         lecture.delete()
         
         return Response({
-            'message': 'Lecture deleted successfully from database and storage',
+            'message': 'Lecture deleted successfully',
             'deleted_lecture': lecture_name,
             'course': course.course_name,
-            'file_deleted': True
+            'file_deleted': file_deleted,
+            'folder_deleted': folder_deleted,
+            'note': 'Folder only deleted if it became empty'
         }, status=status.HTTP_200_OK)
         
     except Exception as e:

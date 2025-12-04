@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import Course, Lecture
 
+
 class LectureCreateSerializer(serializers.ModelSerializer):
     """
     Serializer for CREATING lectures (upload)
@@ -29,7 +30,7 @@ class CourseSerializer(serializers.ModelSerializer):
     """
     lectures = LectureSerializer(many=True, read_only=True)
     
-    class Meta:
+    class Meta: 
         model = Course
         fields = ['course_id', 'course_name', 'course_teacher', 'lectures', 'created_at']
         read_only_fields = ['course_id', 'created_at']

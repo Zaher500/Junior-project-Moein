@@ -33,6 +33,7 @@ class Lecture(models.Model):
         related_name='lectures'  # This enables course.lectures.all()
     )
     lecture_name = models.CharField(max_length=200)
+    file_name = models.CharField(max_length=255, blank=True, null=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
