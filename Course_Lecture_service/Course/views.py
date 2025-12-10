@@ -1,27 +1,12 @@
-# ==============================================================================
-# STANDARD LIBRARY IMPORTS
-# ==============================================================================
 import os
 import uuid
-
-# ==============================================================================
-# DJANGO IMPORTS
-# ==============================================================================
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
-
-# ==============================================================================
-# DRF (Django REST Framework) IMPORTS
-# ==============================================================================
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-
-# ==============================================================================
-# LOCAL APPLICATION IMPORTS
-# ==============================================================================
 from .models import Course, Lecture
 from .serializers import (
     CourseSerializer,
@@ -31,9 +16,7 @@ from .serializers import (
 from .jwt_utils import get_student_id_from_token
 
 
-# ==============================================================================
-# VIEW FUNCTIONS
-# ==============================================================================
+
 @api_view(['POST'])
 def create_course(request):
     """
@@ -142,7 +125,7 @@ def get_course_lectures(request, course_id):
             if lecture.file_name in all_files:
                 filename = lecture.file_name
                 # Create the URL
-                file_url = f"{request.scheme}://{request.get_host()}/media/lectures/{student_id}/{course_id}/{filename}"
+                file_url = f"{request.scheme}://{request.get_host()}/media/{student_id}/{course_id}/{filename}"
                 
                 lecture_dict['file_url'] = file_url
                 lecture_dict['filename'] = filename

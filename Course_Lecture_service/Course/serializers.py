@@ -25,12 +25,17 @@ class LectureSerializer(serializers.ModelSerializer):
         read_only_fields = ['lecture_id', 'student_id', 'course_id', 'created_at']
 
 class CourseSerializer(serializers.ModelSerializer):
-    """
-    Serializer for courses with their lectures
-    """
-    lectures = LectureSerializer(many=True, read_only=True)
+    lectures = serializers.SerializerMethodField()  # ← Change to method field
     
     class Meta: 
         model = Course
         fields = ['course_id', 'course_name', 'course_teacher', 'lectures', 'created_at']
-        read_only_fields = ['course_id', 'created_at']
+    
+    def get_lectures(self, obj):
+        # Get current student from request context
+        request = self.context.get('request')
+        if request and hasattr(request, 'student_id'):
+            student_id = request.student_id
+            lectures = Lecture.objects.filter(course_id=obj, student_id=student_id)
+            return LectureSerializer(lectures, many=True).data
+        return []

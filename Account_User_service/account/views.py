@@ -106,6 +106,48 @@ def login(request):
     return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
     
 
+@api_view(['GET'])
+def get_current_user(request):
+    """
+    Get current authenticated user's information
+    Requires: Authorization: Bearer <token>
+    """
+    user = get_user_from_token(request)
+    
+    if not user:
+        return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+    
+    try:
+        # Get student profile
+        student = Student.objects.get(user_id=user)
+        
+        return Response({
+            'user': {
+                'user_id': str(user.user_id),
+                'username': user.username,
+                'email': user.email,
+                'phone': user.phone,
+                'created_at': user.created_at
+            },
+            'student': {
+                'student_id': str(student.student_id)
+            }
+        }, status=status.HTTP_200_OK)
+        
+    except Student.DoesNotExist:
+        return Response({
+            'user': {
+                'user_id': str(user.user_id),
+                'username': user.username,
+                'email': user.email,
+                'phone': user.phone,
+                'created_at': user.created_at
+            },
+            'student': None,
+            'message': 'Student profile not found'
+        }, status=status.HTTP_200_OK)
+        
+
 @api_view(['DELETE'])
 def delete_account(request):
     try:
@@ -148,9 +190,6 @@ def delete_account(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])  
 def decode_token_contents(request):
-    """
-    Debug: Show what's inside the JWT token (decode without database check)
-    """
     auth_header = request.META.get('HTTP_AUTHORIZATION', '')
     
     if not auth_header:
