@@ -8,6 +8,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
+SERVICES = {
+    'gateway': 'https://marielle-subchondral-rex.ngrok-free.dev',
+    'account': 'https://asteroidal-rikki-craniologically.ngrok-free.dev',   # Account service
+    'course': 'https://lissom-plainly-cathi.ngrok-free.dev',    # Course service
+}
+
+GATEWAY_SECRET = 'AwZKQwAg5nowgvSvSdb4dfPZSC6eM9F_7XH6gokrJEtB93jXEsTJTmYKQGR7xUNn0ns'
+
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-gb+j+njzg_qzb_0lc2hqiail_zt+b7fs@jyg-!3^)cg(a4f8je'
 
@@ -70,6 +78,7 @@ JWT_EXP_DELTA_SECONDS = 86400
 
 
 MIDDLEWARE = [
+    'Course.middleware.GatewaySecretMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

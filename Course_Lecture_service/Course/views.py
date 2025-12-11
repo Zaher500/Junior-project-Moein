@@ -3,6 +3,7 @@ import uuid
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
+from django.http import FileResponse, Http404
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny
@@ -23,6 +24,8 @@ def create_course(request):
     Create a new course for the authenticated student
     Body: {"course_name": "Mathematics", "course_teacher": "Dr. Smith"}
     """
+    print("HEADERS RECEIVED:", request.headers)
+
     student_id = get_student_id_from_token(request)
     if not student_id:
         return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -80,7 +83,10 @@ def get_course_lectures(request, course_id):
     Get all lectures for a specific course WITH FILE URLS
     URL: GET /api/courses/COURSE_ID/lectures/
     """
+    
     student_id = get_student_id_from_token(request)
+    print("STUDENT IN TOKEN:", student_id)
+    print("COURSES IN DB:", list(Course.objects.all().values()))
     if not student_id:
         return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
     
@@ -117,32 +123,24 @@ def get_course_lectures(request, course_id):
     for lecture in lectures:
         lecture_dict = LectureSerializer(lecture).data
         
-        # =============================================
-        # UPDATED LOGIC: Use the stored file_name field
-        # =============================================
         if lecture.file_name:  # Check if lecture has a stored filename
-            # Check if the file actually exists in the folder
             if lecture.file_name in all_files:
                 filename = lecture.file_name
-                # Create the URL
-                file_url = f"{request.scheme}://{request.get_host()}/media/{student_id}/{course_id}/{filename}"
+                
+                gateway = settings.SERVICES['gateway']
+                file_url = f"{gateway}/api/media/{student_id}/{course_id}/{filename}/"
                 
                 lecture_dict['file_url'] = file_url
                 lecture_dict['filename'] = filename
                 lecture_dict['has_file'] = True
             else:
-                # File was recorded but doesn't exist in folder
                 lecture_dict['file_url'] = None
                 lecture_dict['filename'] = None
                 lecture_dict['has_file'] = False
         else:
-            # No file_name stored for this lecture
             lecture_dict['file_url'] = None
             lecture_dict['filename'] = None
             lecture_dict['has_file'] = False
-        # =============================================
-        # END OF UPDATED LOGIC
-        # =============================================
         
         lectures_data.append(lecture_dict)
     
@@ -388,96 +386,72 @@ def update_lecture_name(request, course_id, lecture_id):
 @api_view(['DELETE'])
 def delete_lecture(request, course_id, lecture_id):
     """
-    Delete a lecture from a course and remove the physical file
+    Delete a lecture from a course and remove the physical file.
     URL: DELETE /api/courses/COURSE_ID/lectures/LECTURE_ID/delete/
     """
     # 1. Authentication
     student_id = get_student_id_from_token(request)
     if not student_id:
-        return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({'error': 'Authentication required'}, status=401)
     
     # 2. Authorization - check if course belongs to student
     try:
         course = Course.objects.get(course_id=course_id, student_id=student_id)
     except Course.DoesNotExist:
-        return Response(
-            {'error': 'Course not found or access denied'}, 
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return Response({'error': 'Course not found or access denied'}, status=404)
     
     # 3. Get the lecture and verify ownership
     try:
-        lecture = Lecture.objects.get(
-            lecture_id=lecture_id,
-            course_id=course_id,
-            student_id=student_id
-        )
+        lecture = Lecture.objects.get(lecture_id=lecture_id, course_id=course_id, student_id=student_id)
     except Lecture.DoesNotExist:
-        return Response(
-            {'error': 'Lecture not found or access denied'}, 
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return Response({'error': 'Lecture not found or access denied'}, status=404)
     
-    try:
-        # 4. Delete the physical file using the stored file_name
-        file_deleted = False
-        folder_deleted = False
+    file_deleted = False
+    folder_deleted = False
+    
+    # 4. Delete the physical file
+    if lecture.file_name:
+        # Construct the file path
+        file_path = os.path.join(settings.MEDIA_ROOT, str(student_id), str(course_id), lecture.file_name)
         
-        if lecture.file_name:  # Check if we have filename stored
-            file_path = os.path.join(
-                settings.MEDIA_ROOT,
-                'lectures',
-                str(student_id),
-                str(course_id),
-                lecture.file_name
-            )
-            
-            if os.path.exists(file_path):
+        if os.path.exists(file_path):
+            try:
                 os.remove(file_path)
                 file_deleted = True
                 print(f"✅ Deleted file: {file_path}")
                 
-                # Check if folder is now empty
-                folder_path = os.path.join(
-                    settings.MEDIA_ROOT,
-                    str(student_id),
-                    str(course_id)
-                )
-                
+                # Delete folder if empty
+                folder_path = os.path.join(settings.MEDIA_ROOT, str(student_id), str(course_id))
                 if os.path.exists(folder_path) and not os.listdir(folder_path):
                     os.rmdir(folder_path)
                     folder_deleted = True
                     print(f"✅ Deleted empty folder: {folder_path}")
-            else:
-                print(f"⚠️ File not found: {file_path}")
+            except Exception as e:
+                print(f"⚠️ Failed to delete file/folder: {e}")
         else:
-            print(f"⚠️ Lecture has no file_name stored: {lecture.lecture_id}")
-        
-        # 5. Delete the lecture record from database
-        lecture_name = lecture.lecture_name
-        lecture.delete()
-        
-        return Response({
-            'message': 'Lecture deleted successfully',
-            'deleted_lecture': lecture_name,
-            'course': course.course_name,
-            'file_deleted': file_deleted,
-            'folder_deleted': folder_deleted,
-            'note': 'Folder only deleted if it became empty'
-        }, status=status.HTTP_200_OK)
-        
-    except Exception as e:
-        return Response(
-            {'error': f'Failed to delete lecture: {str(e)}'}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+            print(f"⚠️ File not found: {file_path}")
+    else:
+        print(f"⚠️ Lecture has no file_name stored: {lecture.lecture_id}")
+    
+    # 5. Delete the lecture record from the database
+    lecture_name = lecture.lecture_name
+    lecture.delete()
+    
+    return Response({
+        'message': 'Lecture deleted successfully',
+        'deleted_lecture': lecture_name,
+        'course': course.course_name,
+        'file_deleted': file_deleted,
+        'folder_deleted': folder_deleted,
+        'note': 'Folder only deleted if it became empty'
+    }, status=200)
 
 
 @api_view(['DELETE'])
 def delete_student_courses(request, student_id):
     """Simple endpoint to delete all courses for a student"""
+    print("🔥 DELETE STUDENT COURSES CALLED FOR:", student_id)
     try:
-        from .models import Course
         Course.objects.filter(student_id=student_id).delete()
         
         return Response({
@@ -486,4 +460,5 @@ def delete_student_courses(request, student_id):
         })
     except Exception as e:
         return Response({'error': str(e)}, status=500)
+
 
