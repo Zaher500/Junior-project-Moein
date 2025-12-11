@@ -1,6 +1,5 @@
-"""
-Django settings for gateway project.
-"""
+from pickle import FALSE
+from corsheaders.defaults import default_headers
 from pathlib import Path
 import os
 
@@ -24,15 +23,16 @@ ALLOWED_HOSTS = [
 ]
 
 INSTALLED_APPS = [
+    'corsheaders',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'corsheaders',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -78,9 +78,11 @@ JWT_ALGORITHM = 'HS256'
 
 # Service URLs
 SERVICES = {
-    'account': 'https://asteroidal-rikki-craniologically.ngrok-free.dev',   # Account service
-    'course': 'https://lissom-plainly-cathi.ngrok-free.dev',    # Course service
+    'account': os.environ.get('ACCOUNT_SERVICE_URL', 'https://asteroidal-rikki-craniologically.ngrok-free.dev'),
+    'course': os.environ.get('COURSE_SERVICE_URL', 'http://localhost:8001'),
+    'gateway': os.environ.get('GATEWAY_URL', 'https://marielle-subchondral-rex.ngrok-free.dev'),
 }
+
 
 # Public endpoints (no auth required)
 PUBLIC_ENDPOINTS = [
@@ -90,8 +92,23 @@ PUBLIC_ENDPOINTS = [
     '/api/decode-token/',
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True
+
+
+CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+]
+
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'x-gateway-secret',
+    'x-student-id',
+    'x-user-id',
+    'x-username',
+    'authorization',
+]
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'

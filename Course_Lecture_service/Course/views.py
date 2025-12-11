@@ -3,7 +3,10 @@ import uuid
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from django.http import FileResponse, Http404
+from .jwt_utils import get_student_id_from_token
+from django.views.decorators.http import require_GET
+import mimetypes
+from django.http import FileResponse, Http404, HttpResponseForbidden
 from rest_framework.decorators import api_view, permission_classes, parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny
@@ -14,7 +17,7 @@ from .serializers import (
     LectureCreateSerializer,
     LectureSerializer
 )
-from .jwt_utils import get_student_id_from_token
+
 
 
 
@@ -83,10 +86,7 @@ def get_course_lectures(request, course_id):
     Get all lectures for a specific course WITH FILE URLS
     URL: GET /api/courses/COURSE_ID/lectures/
     """
-    
     student_id = get_student_id_from_token(request)
-    print("STUDENT IN TOKEN:", student_id)
-    print("COURSES IN DB:", list(Course.objects.all().values()))
     if not student_id:
         return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
     
@@ -95,57 +95,48 @@ def get_course_lectures(request, course_id):
     except Course.DoesNotExist:
         return Response({'error': 'Course not found'}, status=404)
     
-    lectures = Lecture.objects.filter(course_id=course_id, student_id=student_id)
+    lectures = Lecture.objects.filter(course_id=course_id, student_id=student_id).order_by('created_at')
     
     # Get all files in the folder
     folder_path = os.path.join(settings.MEDIA_ROOT, str(student_id), str(course_id))
-
-    print("=" * 50)
-    print(f"DEBUG - Looking for files in: {folder_path}")
-    print(f"DEBUG - Folder exists: {os.path.exists(folder_path)}")
-    
-    if os.path.exists(folder_path):
-        print(f"DEBUG - Files in folder: {os.listdir(folder_path)}")
-    else:
-        print(f"DEBUG - Folder doesn't exist!")
-    
-    # Check parent directory
-    parent_path = os.path.join(settings.MEDIA_ROOT, str(student_id))
-    print(f"DEBUG - Parent folder ({parent_path}) exists: {os.path.exists(parent_path)}")
-    if os.path.exists(parent_path):
-        print(f"DEBUG - Contents of parent folder: {os.listdir(parent_path)}")
-    
-    print("=" * 50)
-
     all_files = os.listdir(folder_path) if os.path.exists(folder_path) else []
     
     lectures_data = []
     for lecture in lectures:
         lecture_dict = LectureSerializer(lecture).data
         
-        if lecture.file_name:  # Check if lecture has a stored filename
-            if lecture.file_name in all_files:
-                filename = lecture.file_name
-                
-                gateway = settings.SERVICES['gateway']
-                file_url = f"{gateway}/api/media/{student_id}/{course_id}/{filename}/"
-                
-                lecture_dict['file_url'] = file_url
-                lecture_dict['filename'] = filename
-                lecture_dict['has_file'] = True
-            else:
-                lecture_dict['file_url'] = None
-                lecture_dict['filename'] = None
-                lecture_dict['has_file'] = False
+        # Add basic info for UI
+        lecture_dict['course_id'] = str(course.course_id)
+        lecture_dict['course_name'] = course.course_name
+        
+        # Check for file
+        if lecture.file_name and lecture.file_name in all_files:
+            gateway = settings.SERVICES['gateway']
+            file_url = f"{gateway}/api/media/{student_id}/{course_id}/{lecture.file_name}/"
+            
+            lecture_dict['file_url'] = file_url
+            lecture_dict['filename'] = lecture.file_name
+            lecture_dict['has_file'] = True
+            lecture_dict['file_exists'] = True
         else:
             lecture_dict['file_url'] = None
-            lecture_dict['filename'] = None
-            lecture_dict['has_file'] = False
+            lecture_dict['filename'] = lecture.file_name if lecture.file_name else None
+            lecture_dict['has_file'] = bool(lecture.file_name)
+            lecture_dict['file_exists'] = False
+        
+        # Add lecture detail URL
+        lecture_dict['detail_url'] = f"/api/lectures/{lecture.lecture_id}/"
         
         lectures_data.append(lecture_dict)
     
     return Response({
-        'course': CourseSerializer(course).data,
+        'course': {
+            'course_id': str(course.course_id),
+            'course_name': course.course_name,
+            'course_teacher': course.course_teacher,
+            'created_at': course.created_at,
+            'lecture_count': lectures.count()
+        },
         'lectures': lectures_data,
         'count': lectures.count()
     })
@@ -462,3 +453,124 @@ def delete_student_courses(request, student_id):
         return Response({'error': str(e)}, status=500)
 
 
+@api_view(['GET'])
+def get_lecture(request, lecture_id):
+
+    """
+    Get a single lecture by ID with file download URL
+    URL: GET /api/lectures/{lecture_id}/
+    """
+    # 1. Authentication - try multiple ways to get student_id
+    student_id = None
+    
+    # Method 1: From JWT token
+    student_id = get_student_id_from_token(request)
+    
+    # Method 2: From gateway headers (if forwarded)
+    if not student_id and 'HTTP_X_STUDENT_ID' in request.META:
+        student_id = request.META.get('HTTP_X_STUDENT_ID')
+    
+    # Method 3: From request attribute set by gateway middleware
+    if not student_id and hasattr(request, 'student_id'):
+        student_id = request.student_id
+    
+    if not student_id:
+        return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+    
+    # 2. Get lecture
+    try:
+        lecture = Lecture.objects.get(lecture_id=lecture_id, student_id=student_id)
+    except Lecture.DoesNotExist:
+        return Response({'error': 'Lecture not found or access denied'}, status=status.HTTP_404_NOT_FOUND)
+    
+    # 3. Serialize lecture data
+    lecture_data = LectureSerializer(lecture).data
+    
+    # 4. Add course info
+    course = lecture.course_id
+    lecture_data['course'] = {
+        'course_id': str(course.course_id),
+        'course_name': course.course_name,
+        'course_teacher': course.course_teacher
+    }
+    
+    # 5. Add file URL if file exists
+    if lecture.file_name:
+        folder_path = os.path.join(
+            settings.MEDIA_ROOT, 
+            str(student_id), 
+            str(course.course_id)
+        )
+        file_path = os.path.join(folder_path, lecture.file_name)
+        
+        if os.path.exists(file_path):
+            # Use relative URL for gateway
+            lecture_data['file_url'] = f"/api/media/{student_id}/{course.course_id}/{lecture.file_name}/"
+            lecture_data['has_file'] = True
+            lecture_data['file_exists'] = True
+        else:
+            lecture_data['file_url'] = None
+            lecture_data['has_file'] = False
+            lecture_data['file_exists'] = False
+    else:
+        lecture_data['file_url'] = None
+        lecture_data['has_file'] = False
+        lecture_data['file_exists'] = False
+    
+    return Response(lecture_data)
+
+
+
+def _get_header_case_insensitive(request, header_name):
+    """
+    Return header value reading case-insensitively from request.headers or request.META.
+    header_name should be like 'X-GATEWAY-SECRET' or 'X-Student-ID'.
+    """
+    # 1) check request.headers (Django 2.2+ provides a case-insensitive mapping, but be defensive)
+    try:
+        for k, v in request.headers.items():
+            if k.lower() == header_name.lower():
+                return v
+    except Exception:
+        pass
+
+    # 2) fallback to request.META (HTTP_ prefix, hyphens -> underscores)
+    meta_key = "HTTP_" + header_name.replace("-", "_").upper()
+    return request.META.get(meta_key)
+
+@require_GET
+def serve_media_file(request, student_id, course_id, filename):
+    """
+    Serve a file from MEDIA_ROOT/<student_id>/<course_id>/<filename>
+    - Checks gateway secret header (case-insensitive).
+    - Optionally checks X-Student-ID (case-insensitive) to confirm ownership.
+    """
+    # Debug: show the incoming key header names once (temporary)
+    # print("[Course DEBUG] headers keys sample:", list(request.headers.keys())[:15])
+
+    # 1) Verify gateway secret header (case-insensitive)
+    gateway_secret = _get_header_case_insensitive(request, 'X-GATEWAY-SECRET')
+    expected = getattr(settings, 'GATEWAY_SECRET', None)
+    if not gateway_secret or expected is None or gateway_secret != expected:
+        # Optional: log actual vs expected for debugging (remove in prod)
+        print(f"[Course DEBUG] Gateway secret mismatch. Received: {gateway_secret!r} Expected: {expected!r}")
+        return HttpResponseForbidden("Forbidden: missing or invalid gateway secret")
+
+    # 2) Optional: verify student ownership header (case-insensitive)
+    forwarded_student = _get_header_case_insensitive(request, 'X-Student-ID')
+    if forwarded_student and str(forwarded_student) != str(student_id):
+        print(f"[Course DEBUG] Student ID mismatch. Forwarded: {forwarded_student} path: {student_id}")
+        return HttpResponseForbidden("Forbidden: student mismatch")
+
+    # 3) Build the file path and check existence
+    file_path = os.path.join(settings.MEDIA_ROOT, str(student_id), str(course_id), filename)
+    if not os.path.exists(file_path):
+        print(f"[Course DEBUG] File not found at path: {file_path}")
+        raise Http404("File not found")
+
+    # 4) Serve file (use inline for previews; change to attachment to force download)
+    content_type, _ = mimetypes.guess_type(file_path)
+    response = FileResponse(open(file_path, 'rb'), content_type=content_type or 'application/octet-stream')
+    response['Content-Disposition'] = f'inline; filename="{os.path.basename(filename)}"'
+    return response
+    
