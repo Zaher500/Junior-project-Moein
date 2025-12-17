@@ -93,49 +93,40 @@ def login(request):
         }, status=status.HTTP_200_OK)
     
     return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
-    
 
-@api_view(['GET'])
-def get_current_user(request):
+
+@api_view(['PUT', 'PATCH'])
+def edit_account(request):
     """
-    Get current authenticated user's information
+    Edit authenticated user's account
     Requires: Authorization: Bearer <token>
     """
     user = get_user_from_token(request)
-    
+
     if not user:
         return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
-    
-    try:
-        # Get student profile
-        student = Student.objects.get(user_id=user)
-        
+
+    serializer = EditAccountSerializer(
+        user,
+        data=request.data,
+        partial=True,
+        context={'request': request}
+    )
+
+    if serializer.is_valid():
+        serializer.save()
         return Response({
+            'message': 'Account updated successfully',
             'user': {
                 'user_id': str(user.user_id),
                 'username': user.username,
                 'email': user.email,
-                'phone': user.phone,
-                'created_at': user.created_at
-            },
-            'student': {
-                'student_id': str(student.student_id)
+                'phone': user.phone
             }
         }, status=status.HTTP_200_OK)
-        
-    except Student.DoesNotExist:
-        return Response({
-            'user': {
-                'user_id': str(user.user_id),
-                'username': user.username,
-                'email': user.email,
-                'phone': user.phone,
-                'created_at': user.created_at
-            },
-            'student': None,
-            'message': 'Student profile not found'
-        }, status=status.HTTP_200_OK)
-        
+
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 @api_view(['DELETE'])
 def delete_account(request):
@@ -190,6 +181,48 @@ def delete_account(request):
 
     except Exception as e:
         return Response({"error": str(e)}, status=500)
+
+
+@api_view(['GET'])
+def get_current_user(request):
+    """
+    Get current authenticated user's information
+    Requires: Authorization: Bearer <token>
+    """
+    user = get_user_from_token(request)
+    
+    if not user:
+        return Response({'error': 'Authentication required'}, status=status.HTTP_401_UNAUTHORIZED)
+    
+    try:
+        # Get student profile
+        student = Student.objects.get(user_id=user)
+        
+        return Response({
+            'user': {
+                'user_id': str(user.user_id),
+                'username': user.username,
+                'email': user.email,
+                'phone': user.phone,
+                'created_at': user.created_at
+            },
+            'student': {
+                'student_id': str(student.student_id)
+            }
+        }, status=status.HTTP_200_OK)
+        
+    except Student.DoesNotExist:
+        return Response({
+            'user': {
+                'user_id': str(user.user_id),
+                'username': user.username,
+                'email': user.email,
+                'phone': user.phone,
+                'created_at': user.created_at
+            },
+            'student': None,
+            'message': 'Student profile not found'
+        }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])

@@ -73,6 +73,48 @@ class UserLoginSerializer(serializers.Serializer):
         return data
 
 
+class EditAccountSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False, min_length=6)
+    password_confirm = serializers.CharField(write_only=True, required=False, min_length=6)
+
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'phone', 'password', 'password_confirm']
+
+    def validate(self, data):
+        user = self.context['request'].user
+
+        # Username uniqueness
+        if 'username' in data:
+            if User.objects.exclude(user_id=user.user_id).filter(username=data['username']).exists():
+                raise serializers.ValidationError("Username already exists")
+
+        # Email uniqueness
+        if 'email' in data:
+            if User.objects.exclude(user_id=user.user_id).filter(email=data['email']).exists():
+                raise serializers.ValidationError("Email already exists")
+
+        # Password validation
+        if 'password' in data or 'password_confirm' in data:
+            if data.get('password') != data.get('password_confirm'):
+                raise serializers.ValidationError("Passwords don't match")
+
+        return data
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+        validated_data.pop('password_confirm', None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if password:
+            instance.set_password(password)
+
+        instance.save()
+        return instance
+
+
 class DeleteAccountSerializer(serializers.Serializer):
 
     password = serializers.CharField(write_only=True, required=True)

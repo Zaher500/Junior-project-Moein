@@ -21,6 +21,7 @@ class RequestRouterMiddleware:
             '/api/signup': 'account',
             '/api/login': 'account',
             '/api/delete': 'account',
+            '/api/edit': 'account',
             '/api/decode-token': 'account',
             '/api/check-student': 'account',
             '/api/check-user': 'account',
