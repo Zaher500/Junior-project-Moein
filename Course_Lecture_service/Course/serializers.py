@@ -24,8 +24,16 @@ class LectureSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Lecture
-        fields = ['lecture_id', 'student_id', 'course_id', 'lecture_name', 
-                 'course_info', 'created_at', 'updated_at']
+        fields = [
+            'lecture_id',
+            'student_id',
+            'course_id',
+            'lecture_name',
+            'summary_status',
+            'course_info',
+            'created_at',
+            'updated_at'
+        ]
         read_only_fields = ['lecture_id', 'student_id', 'course_id', 'created_at', 'updated_at']
     
     def get_course_info(self, obj):

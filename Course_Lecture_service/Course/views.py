@@ -8,6 +8,9 @@ from django.views.decorators.http import require_GET
 import mimetypes
 from django.http import FileResponse, Http404, HttpResponseForbidden
 from rest_framework.decorators import api_view, permission_classes, parser_classes
+from .utils.text_extractor import extract_text_from_file
+from .services.summarization_client import get_summary
+from .services.summarization_client import send_for_summarization, is_summary_ready
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -289,29 +292,58 @@ def upload_lecture(request, course_id):
             for chunk in uploaded_file.chunks():
                 destination.write(chunk)
         
-        # 8. Get lecture name from validated serializer data
+        # 8. Get lecture name
         lecture_name = serializer.validated_data['lecture_name']
-        
-        # 9. Create lecture record - FIXED: Use the course object directly
+
+        # 9. CREATE LECTURE IMMEDIATELY ✅
         lecture = Lecture.objects.create(
             student_id=student_id,
-            course_id=course,  # Pass the Course object directly
+            course_id=course,
             lecture_name=lecture_name,
             file_name=unique_filename,
+            summary_status='PROCESSING',
         )
+
+         # 10. Extract text
+        try:
+            extracted_text = extract_text_from_file(file_path)
+        except Exception as e:
+            lecture.summary_status = 'FAILED'
+            lecture.save(update_fields=['summary_status'])
+
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+            return Response(
+                {'error': f'Text extraction failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 11. Send lecture for summarization
+        try:
+            send_for_summarization(lecture.lecture_id, extracted_text)
+        except Exception as e:
+            lecture.summary_status = 'FAILED'
+            lecture.save(update_fields=['summary_status'])
+
+            return Response(
+                {'error': 'Summarization service unavailable'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
         
-        # 10. Return response
+        # 12. Return response
         return Response({
             'message': 'Lecture uploaded successfully',
             'lecture': LectureSerializer(lecture).data,
-            'file_saved_as': unique_filename  # Return filename in response
+            'file_saved_as': unique_filename
         }, status=status.HTTP_201_CREATED)
-        
+
     except Exception as e:
         return Response(
-            {'error': f'Upload failed: {str(e)}'}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        {'error': f'Upload failed: {str(e)}'},
+        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+    )
+
 
 
 @api_view(['PUT'])
@@ -482,6 +514,17 @@ def get_lecture(request, lecture_id):
         lecture = Lecture.objects.get(lecture_id=lecture_id, student_id=student_id)
     except Lecture.DoesNotExist:
         return Response({'error': 'Lecture not found or access denied'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Poll summarization service if still processing
+    if lecture.summary_status == 'PROCESSING':
+        try:
+            if is_summary_ready(str(lecture.lecture_id)):
+                lecture.summary_status = 'READY'
+                lecture.save(update_fields=['summary_status'])
+        except Exception:
+            # Do NOT fail the request
+            # Keep PROCESSING and try again next poll
+            pass
     
     # 3. Serialize lecture data
     lecture_data = LectureSerializer(lecture).data
@@ -520,6 +563,60 @@ def get_lecture(request, lecture_id):
     return Response(lecture_data)
 
 
+@api_view(['GET'])
+def get_lecture_summary(request, lecture_id):
+    """
+    Get lecture summary from summarization service
+    URL: GET /api/lectures/<lecture_id>/summary/
+    """
+    # 1. Authentication
+    student_id = get_student_id_from_token(request)
+    if not student_id:
+        return Response(
+            {'error': 'Authentication required'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    # 2. Get lecture & verify ownership
+    try:
+        lecture = Lecture.objects.get(
+            lecture_id=lecture_id,
+            student_id=student_id
+        )
+    except Lecture.DoesNotExist:
+        return Response(
+            {'error': 'Lecture not found or access denied'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # 3. Check summary status
+    if lecture.summary_status != 'READY':
+        return Response(
+            {
+                'error': 'Summary is not ready yet',
+                'summary_status': lecture.summary_status
+            },
+            status=status.HTTP_409_CONFLICT
+        )
+
+    # 4. Fetch summary from summarization service
+    try:
+        summary_data = get_summary(lecture.lecture_id)
+    except Exception as e:
+        return Response(
+            {'error': f'Failed to fetch summary: {str(e)}'},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+
+    # 5. Return summary to frontend
+    return Response(
+        {
+            'lecture_id': str(lecture.lecture_id),
+            'summary': summary_data.get('summary')
+        },
+        status=status.HTTP_200_OK
+    )
+
 
 def _get_header_case_insensitive(request, header_name):
     """
@@ -537,6 +634,7 @@ def _get_header_case_insensitive(request, header_name):
     # 2) fallback to request.META (HTTP_ prefix, hyphens -> underscores)
     meta_key = "HTTP_" + header_name.replace("-", "_").upper()
     return request.META.get(meta_key)
+
 
 @require_GET
 def serve_media_file(request, student_id, course_id, filename):

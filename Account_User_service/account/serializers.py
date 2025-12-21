@@ -82,19 +82,19 @@ class EditAccountSerializer(serializers.ModelSerializer):
         fields = ['username', 'email', 'phone', 'password', 'password_confirm']
 
     def validate(self, data):
-        user = self.context['request'].user
+        user = self.context.get('auth_user')
 
-        # Username uniqueness
+        if not user:
+            raise serializers.ValidationError("Authentication required")
+
         if 'username' in data:
             if User.objects.exclude(user_id=user.user_id).filter(username=data['username']).exists():
                 raise serializers.ValidationError("Username already exists")
 
-        # Email uniqueness
         if 'email' in data:
             if User.objects.exclude(user_id=user.user_id).filter(email=data['email']).exists():
                 raise serializers.ValidationError("Email already exists")
 
-        # Password validation
         if 'password' in data or 'password_confirm' in data:
             if data.get('password') != data.get('password_confirm'):
                 raise serializers.ValidationError("Passwords don't match")

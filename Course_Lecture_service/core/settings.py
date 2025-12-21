@@ -44,6 +44,12 @@ ALLOWED_HOSTS = [
 ]
 
 
+SUMMARIZATION_SERVICE = {
+    'base_url': 'https://lissom-plainly-cathi.ngrok-free.dev/api',
+    'timeout': 30
+}
+
+
 # Application definition
 
 INSTALLED_APPS = [

@@ -15,5 +15,6 @@ urlpatterns = [
     path('courses/<uuid:course_id>/lectures/', views.get_course_lectures, name='get-course-lectures'), #GET ALL LECTURES FOR SPECIFIC COURSE
     path('lectures/<uuid:lecture_id>/', views.get_lecture, name='get-lecture'),
     path('media/<uuid:student_id>/<uuid:course_id>/<path:filename>/', views.serve_media_file, name='serve-media'),
-
+    path('lectures/<uuid:lecture_id>/summary/', views.get_lecture_summary, name='get-lecture-summary'),
+    
 ]
